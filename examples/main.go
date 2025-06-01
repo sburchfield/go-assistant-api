@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/sburchfield/go-assistant-api/assistant"
+	"github.com/sburchfield/go-assistant-api/assistant/provider"
 )
 
 type chatRequest struct {
@@ -15,12 +15,10 @@ type chatRequest struct {
 }
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("Missing OPENAI_API_KEY environment variable")
+	providerClient, err := provider.NewProviderFromEnv()
+	if err != nil {
+		log.Fatalf("Failed to initialize provider: %v", err)
 	}
-
-	client := assistant.NewClient(apiKey, "gpt-3.5-turbo")
 
 	http.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -34,9 +32,9 @@ func main() {
 			return
 		}
 
-		stream, err := client.ChatStream(r.Context(), req.Messages)
+		stream, err := providerClient.ChatStream(r.Context(), req.Messages)
 		if err != nil {
-			http.Error(w, "Failed to stream from OpenAI", http.StatusInternalServerError)
+			http.Error(w, "Failed to stream from provider", http.StatusInternalServerError)
 			log.Println("stream error:", err)
 			return
 		}

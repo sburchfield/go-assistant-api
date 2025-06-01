@@ -1,10 +1,10 @@
-// assistant/client.go
-package assistant
+package openai
 
 import (
 	"context"
 
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/sburchfield/go-assistant-api/assistant"
 )
 
 // ChatStream defines the interface for streaming OpenAI chat completions.
@@ -43,7 +43,7 @@ func NewClient(apiKey string, model string) *Client {
 	return NewClientWithSDK(&sdkWrapper{inner: openai.NewClient(apiKey)}, model)
 }
 
-func (c *Client) ChatStream(ctx context.Context, messages []Message) (<-chan string, error) {
+func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (<-chan string, error) {
 	input := make([]openai.ChatCompletionMessage, len(messages))
 	for i, m := range messages {
 		input[i] = openai.ChatCompletionMessage{

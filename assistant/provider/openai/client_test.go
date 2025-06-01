@@ -1,5 +1,5 @@
-// assistant/client_test.go
-package assistant_test
+// assistant/provider/openai/client_test.go
+package openai_test
 
 import (
 	"context"
@@ -7,19 +7,20 @@ import (
 	"testing"
 	"time"
 
-	openai "github.com/sashabaranov/go-openai"
+	sdk "github.com/sashabaranov/go-openai"
 	"github.com/sburchfield/go-assistant-api/assistant"
+	"github.com/sburchfield/go-assistant-api/assistant/provider/openai"
 )
 
 type mockStream struct {
-	responses []openai.ChatCompletionStreamResponse
+	responses []sdk.ChatCompletionStreamResponse
 	index     int
 	closed    bool
 }
 
-func (m *mockStream) Recv() (openai.ChatCompletionStreamResponse, error) {
+func (m *mockStream) Recv() (sdk.ChatCompletionStreamResponse, error) {
 	if m.index >= len(m.responses) {
-		return openai.ChatCompletionStreamResponse{}, errors.New("EOF")
+		return sdk.ChatCompletionStreamResponse{}, errors.New("EOF")
 	}
 	resp := m.responses[m.index]
 	m.index++
@@ -32,24 +33,24 @@ func (m *mockStream) Close() error {
 }
 
 type mockOpenAIClient struct {
-	stream assistant.ChatStream
+	stream openai.ChatStream
 }
 
-func (m *mockOpenAIClient) CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (assistant.ChatStream, error) {
+func (m *mockOpenAIClient) CreateChatCompletionStream(ctx context.Context, req sdk.ChatCompletionRequest) (openai.ChatStream, error) {
 	return m.stream, nil
 }
 
 func TestChatStream(t *testing.T) {
-	mockResp := []openai.ChatCompletionStreamResponse{
-		{Choices: []openai.ChatCompletionStreamChoice{{Delta: openai.ChatCompletionStreamChoiceDelta{Content: "Hello"}}}},
-		{Choices: []openai.ChatCompletionStreamChoice{{Delta: openai.ChatCompletionStreamChoiceDelta{Content: " world"}}}},
+	mockResp := []sdk.ChatCompletionStreamResponse{
+		{Choices: []sdk.ChatCompletionStreamChoice{{Delta: sdk.ChatCompletionStreamChoiceDelta{Content: "Hello"}}}},
+		{Choices: []sdk.ChatCompletionStreamChoice{{Delta: sdk.ChatCompletionStreamChoiceDelta{Content: " world"}}}},
 	}
 
 	mockClient := &mockOpenAIClient{
 		stream: &mockStream{responses: mockResp},
 	}
 
-	client := assistant.NewClientWithSDK(mockClient, "gpt-3.5-turbo")
+	client := openai.NewClientWithSDK(mockClient, "gpt-3.5-turbo")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 

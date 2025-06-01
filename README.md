@@ -1,13 +1,13 @@
 # go-assistant-api
 
-A clean, modular Go package for streaming OpenAI assistant-style chat responses with Server-Sent Events (SSE). Inspired by [Assistant UI](https://www.assistant-ui.com), built with clean architecture principles in mind.
+A clean, modular Go package for streaming OpenAI and Gemini assistant-style chat responses with Server-Sent Events (SSE). Inspired by [Assistant UI](https://www.assistant-ui.com), built with clean architecture principles in mind.
 
 ---
 
 ## ✨ Features
 
 - 🔁 Chat message struct & role helpers
-- 📡 Streaming OpenAI completions via channels
+- 📡 Streaming OpenAI and Gemini completions via channels
 - 🌐 SSE writer for browser/server compatibility
 - 🧪 Fully testable with mock clients
 - 🧩 Easy to integrate into any Go server (`net/http`, `gin`, `chi`, etc.)
@@ -22,17 +22,31 @@ A clean, modular Go package for streaming OpenAI assistant-style chat responses 
 go get github.com/sburchfield/go-assistant-api
 ```
 
-### 2. Example Usage
+### 2. Choose Your Provider
+
+Set environment variables before running:
+
+#### For OpenAI:
+```bash
+export LLM_PROVIDER=openai
+export OPENAI_API_KEY=your-openai-key
+export OPENAI_MODEL=gpt-3.5-turbo
+```
+
+#### For Gemini:
+```bash
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=your-gemini-key
+export GEMINI_MODEL=gemini-pro
+```
+
+### 3. Example Usage
 
 ```go
-client := assistant.NewClient(os.Getenv("OPENAI_API_KEY"), "gpt-3.5-turbo")
-stream, err := client.ChatStream(ctx, []assistant.Message{
+providerClient, _ := provider.NewProviderFromEnv()
+stream, err := providerClient.ChatStream(ctx, []assistant.Message{
 	{Role: assistant.RoleUser, Content: "What's the capital of France?"},
 })
-
-if err != nil {
-	log.Fatal(err)
-}
 
 assistant.ToSSE(w, stream)
 ```
@@ -61,11 +75,14 @@ go test ./...
 ## 📁 Project Structure
 
 ```
-assistant/          # Core functionality
-  ├── client.go     # OpenAI streaming wrapper
-  ├── message.go    # Message roles and struct
-  ├── stream.go     # SSE formatter
-examples/           # Example HTTP server
+assistant/                  # Core functionality
+  ├── message.go            # Message roles and struct
+  ├── stream.go             # SSE formatter
+  └── provider/             # Multi-provider LLM support
+      ├── openai/           # OpenAI implementation
+      ├── gemini/           # Gemini implementation
+      └── factory.go        # Provider selector (env-based)
+examples/                   # Example HTTP server
 ```
 
 ---
