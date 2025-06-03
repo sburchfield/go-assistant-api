@@ -1,99 +1,89 @@
-// assistant/provider/gemini/client.go
 package gemini
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
-	"strings"
+	"io"
+	"log"
 
 	"github.com/sburchfield/go-assistant-api/assistant"
+	"google.golang.org/api/option"
+
+	genai "cloud.google.com/go/ai/generativelanguage/apiv1beta"
+	genaipb "cloud.google.com/go/ai/generativelanguage/apiv1beta/generativelanguagepb"
 )
 
 type Client struct {
-	apiKey string
-	model  string
-	client *http.Client
+	model   *genai.GenerativeClient
+	modelID string
 }
 
-func NewClient(apiKey, model string) *Client {
-	return &Client{apiKey: apiKey, model: model, client: http.DefaultClient}
-}
-
-// for testing
-func NewClientWithHTTP(apiKey, model string, client *http.Client) *Client {
-	return &Client{apiKey: apiKey, model: model, client: client}
-}
-
-type geminiMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"text"`
-}
-
-type geminiRequest struct {
-	Contents []struct {
-		Parts []geminiMessage `json:"parts"`
-		Role  string          `json:"role"`
-	} `json:"contents"`
-}
-
-func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (<-chan string, error) {
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?key=%s", c.model, c.apiKey)
-
-	var contents []struct {
-		Parts []geminiMessage `json:"parts"`
-		Role  string          `json:"role"`
+func NewClient(ctx context.Context, apiKey, modelID string) (*Client, error) {
+	generativeClient, err := genai.NewGenerativeClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create generative service client: %w", err)
 	}
+
+	return &Client{model: generativeClient, modelID: modelID}, nil
+}
+
+func (c *Client) ChatStream(
+	ctx context.Context,
+	messages []assistant.Message,
+) (<-chan string, error) {
+	if len(messages) == 0 {
+		return nil, errors.New("ChatStream: no messages provided")
+	}
+
+	var sdkContents []*genaipb.Content
 	for _, msg := range messages {
-		contents = append(contents, struct {
-			Parts []geminiMessage `json:"parts"`
-			Role  string          `json:"role"`
-		}{
-			Parts: []geminiMessage{{Role: msg.Role, Content: msg.Content}},
-			Role:  msg.Role,
+		sdkRole := "user"
+		if msg.Role == "assistant" || msg.Role == "model" {
+			sdkRole = "model"
+		}
+		sdkContents = append(sdkContents, &genaipb.Content{
+			Role: sdkRole,
+			Parts: []*genaipb.Part{
+				{Data: &genaipb.Part_Text{Text: msg.Content}},
+			},
 		})
 	}
 
-	body, _ := json.Marshal(geminiRequest{Contents: contents})
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := &genaipb.GenerateContentRequest{
+		Model:    fmt.Sprintf("models/%s", c.modelID),
+		Contents: sdkContents,
+	}
 
-	resp, err := c.client.Do(req)
+	stream, err := c.model.StreamGenerateContent(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate content: %w", err)
 	}
 
 	out := make(chan string)
 	go func() {
 		defer close(out)
-		defer resp.Body.Close()
 
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, "data:") {
-				var chunk struct {
-					Candidates []struct {
-						Content struct {
-							Parts []struct {
-								Text string `json:"text"`
-							} `json:"parts"`
-						} `json:"content"`
-					} `json:"candidates"`
-				}
-				if err := json.Unmarshal([]byte(line[5:]), &chunk); err == nil {
-					for _, part := range chunk.Candidates {
-						for _, p := range part.Content.Parts {
-							out <- p.Text
-						}
+		for {
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				log.Printf("stream recv error: %v", err)
+				return
+			}
+
+			for _, cand := range resp.Candidates {
+				for _, part := range cand.Content.Parts {
+					text := part.GetText()
+					if text != "" {
+						out <- text
 					}
 				}
 			}
 		}
 	}()
-
 	return out, nil
+
 }

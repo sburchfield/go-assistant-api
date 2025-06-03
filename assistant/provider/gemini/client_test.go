@@ -2,37 +2,35 @@ package gemini_test
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"strings"
 	"testing"
 
+	"cloud.google.com/go/ai/generativelanguage/apiv1beta/generativelanguagepb"
 	"github.com/sburchfield/go-assistant-api/assistant"
 	"github.com/sburchfield/go-assistant-api/assistant/provider/gemini"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/test/bufconn"
 )
 
-func TestChatStream_Gemini(t *testing.T) {
-	body := "" +
-		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]}}]}\n" +
-		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" world\"}]}}]}\n"
+const bufSize = 1024 * 1024
 
-	client := &http.Client{
-		Transport: roundTripFunc(func(req *http.Request) *http.Response {
-			return &http.Response{
-				StatusCode: 200,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     make(http.Header),
-			}
-		}),
+func TestChatStream_Gemini(t *testing.T) {
+	listener := bufconn.Listen(bufSize)
+	server := grpc.NewServer()
+
+	generativelanguagepb.RegisterGenerativeServiceServer(server, &mockGenerativeServer{})
+	go func() {
+		_ = server.Serve(listener)
+	}()
+
+	ctx := context.Background()
+	client, err := gemini.NewClient(ctx, "fake-api-key", "gemini-pro")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
 	}
 
-	sut := gemini.NewClientWithHTTP("fake-api-key", "gemini-pro", client)
-	ctx := context.Background()
-
-	stream, err := sut.ChatStream(ctx, []assistant.Message{
+	stream, err := client.ChatStream(ctx, []assistant.Message{
 		{Role: assistant.RoleUser, Content: "Say something"},
 	})
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,8 +46,34 @@ func TestChatStream_Gemini(t *testing.T) {
 	}
 }
 
-type roundTripFunc func(req *http.Request) *http.Response
+type mockGenerativeServer struct {
+	generativelanguagepb.UnimplementedGenerativeServiceServer
+}
 
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req), nil
+func (m *mockGenerativeServer) StreamGenerateContent(req *generativelanguagepb.GenerateContentRequest, stream generativelanguagepb.GenerativeService_StreamGenerateContentServer) error {
+	resp1 := &generativelanguagepb.GenerateContentResponse{
+		Candidates: []*generativelanguagepb.Candidate{
+			{
+				Content: &generativelanguagepb.Content{
+					Parts: []*generativelanguagepb.Part{
+						{Data: &generativelanguagepb.Part_Text{Text: "Hello"}},
+					},
+				},
+			},
+		},
+	}
+	resp2 := &generativelanguagepb.GenerateContentResponse{
+		Candidates: []*generativelanguagepb.Candidate{
+			{
+				Content: &generativelanguagepb.Content{
+					Parts: []*generativelanguagepb.Part{
+						{Data: &generativelanguagepb.Part_Text{Text: " world"}},
+					},
+				},
+			},
+		},
+	}
+	_ = stream.Send(resp1)
+	_ = stream.Send(resp2)
+	return nil
 }

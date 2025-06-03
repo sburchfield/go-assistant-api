@@ -2,6 +2,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -25,7 +26,7 @@ func NewProviderFromEnv() (ChatProvider, error) {
 		if apiKey == "" || model == "" {
 			return nil, fmt.Errorf("missing GEMINI_API_KEY or GEMINI_MODEL")
 		}
-		return gemini.NewClient(apiKey, model), nil
+		return gemini.NewClient(context.TODO(), apiKey, model)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
