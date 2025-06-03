@@ -28,7 +28,7 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 		"f": map[string]string{"messageId": fmt.Sprintf("msg-%s", xid.New().String())},
 	}
 	if data, err := json.Marshal(startChunk); err == nil {
-		fmt.Fprintf(w, "%s\n\n", data)
+		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 	}
 
@@ -41,11 +41,24 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 			if !ok {
 				// Final end-of-stream message
 				endChunk := map[string]any{
-					"e": map[string]string{},
-					"d": map[string]string{},
+					"e": map[string]any{
+						"finishReason": "stop",
+						"usage": map[string]int{
+							"promptTokens":     0,
+							"completionTokens": 0,
+						},
+						"isContinued": false,
+					},
+					"d": map[string]any{
+						"finishReason": "stop",
+						"usage": map[string]int{
+							"promptTokens":     0,
+							"completionTokens": 0,
+						},
+					},
 				}
 				if data, err := json.Marshal(endChunk); err == nil {
-					fmt.Fprintf(w, "%s\n\n", data)
+					fmt.Fprintf(w, "data: %s\n\n", data)
 					flusher.Flush()
 				}
 				return
@@ -57,7 +70,7 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 
 			chunk := map[string]string{"0": msg}
 			if data, err := json.Marshal(chunk); err == nil {
-				if _, err := fmt.Fprintf(w, "%s\n\n", data); err != nil {
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
 					http.Error(w, "Error writing to stream", http.StatusInternalServerError)
 					return
 				}
