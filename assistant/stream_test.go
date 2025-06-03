@@ -1,6 +1,8 @@
 package assistant_test
 
 import (
+	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -9,13 +11,13 @@ import (
 )
 
 func TestToSSE(t *testing.T) {
-	msgs := make(chan string, 3)
+	msgs := make(chan string, 2)
 	msgs <- "Hello"
 	msgs <- "world"
 	close(msgs)
 
 	recorder := httptest.NewRecorder()
-	assistant.ToSSE(recorder, msgs)
+	assistant.ToSSE(context.TODO(), recorder, msgs)
 
 	res := recorder.Result()
 	defer res.Body.Close()
@@ -25,16 +27,39 @@ func TestToSSE(t *testing.T) {
 	}
 
 	body := recorder.Body.String()
-	lines := strings.Split(strings.TrimSpace(body), "\n\n")
-	expectedLines := []string{"data: Hello", "data: world"}
+	events := strings.Split(strings.TrimSpace(body), "\n\n")
 
-	if len(lines) != len(expectedLines) {
-		t.Fatalf("expected %d SSE events, got %d: %v", len(expectedLines), len(lines), lines)
+	if len(events) != 4 {
+		t.Fatalf("expected 4 SSE events (f, 0, 0, e/d), got %d:\n%s", len(events), body)
 	}
 
-	for i, expected := range expectedLines {
-		if lines[i] != expected {
-			t.Errorf("event %d: expected %q, got %q", i, expected, lines[i])
+	// Check first event (f: messageId)
+	var f map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(events[0], "data: ")), &f); err != nil || f["f"] == nil {
+		t.Errorf("expected first chunk to have 'f', got: %v", f)
+	}
+
+	// Check token chunks
+	for i, expected := range []string{"Hello", "world"} {
+		var token map[string]string
+		err := json.Unmarshal([]byte(strings.TrimPrefix(events[i+1], "data: ")), &token)
+		if err != nil {
+			t.Fatalf("error decoding chunk %d: %v", i+1, err)
 		}
+		if token["0"] != expected {
+			t.Errorf("expected token '%s', got '%s'", expected, token["0"])
+		}
+	}
+
+	// Check final event (e and d)
+	var end map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(events[3], "data: ")), &end); err != nil {
+		t.Errorf("error decoding final chunk: %v", err)
+	}
+	if _, ok := end["e"]; !ok {
+		t.Errorf("expected final chunk to contain 'e'")
+	}
+	if _, ok := end["d"]; !ok {
+		t.Errorf("expected final chunk to contain 'd'")
 	}
 }

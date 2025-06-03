@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -39,7 +40,7 @@ func main() {
 			return
 		}
 
-		assistant.ToSSE(w, stream)
+		assistant.ToSSE(context.TODO(), w, stream)
 	})
 
 	log.Println("Listening on http://localhost:8080")
