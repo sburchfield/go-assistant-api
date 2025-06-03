@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rs/xid"
 )
@@ -69,6 +71,13 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 			}
 
 			chunk := map[string]string{"0": msg}
+			log.Println("stream chunk:", msg)
+
+			if !utf8.ValidString(msg) {
+				log.Println("invalid UTF-8:", msg)
+				continue
+			}
+
 			if data, err := json.Marshal(chunk); err == nil {
 				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
 					http.Error(w, "Error writing to stream", http.StatusInternalServerError)
