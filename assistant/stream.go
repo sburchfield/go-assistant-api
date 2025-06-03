@@ -2,12 +2,11 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
-	"unicode/utf8"
+
+	"encoding/json"
 
 	"github.com/rs/xid"
 )
@@ -25,14 +24,9 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 
 	flusher.Flush()
 
-	// Emit initial messageId for ai-sdk clients
-	startChunk := map[string]any{
-		"f": map[string]string{"messageId": fmt.Sprintf("msg-%s", xid.New().String())},
-	}
-	if data, err := json.Marshal(startChunk); err == nil {
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-	}
+	messageID := fmt.Sprintf("msg-%s", xid.New().String())
+	fmt.Fprintf(w, "f:{\"messageId\":\"%s\"}\n\n", messageID)
+	flusher.Flush()
 
 	keepAliveTicker := time.NewTicker(30 * time.Second)
 	defer keepAliveTicker.Stop()
@@ -41,28 +35,11 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 		select {
 		case msg, ok := <-stream:
 			if !ok {
-				// Final end-of-stream message
-				endChunk := map[string]any{
-					"e": map[string]any{
-						"finishReason": "stop",
-						"usage": map[string]int{
-							"promptTokens":     0,
-							"completionTokens": 0,
-						},
-						"isContinued": false,
-					},
-					"d": map[string]any{
-						"finishReason": "stop",
-						"usage": map[string]int{
-							"promptTokens":     0,
-							"completionTokens": 0,
-						},
-					},
-				}
-				if data, err := json.Marshal(endChunk); err == nil {
-					fmt.Fprintf(w, "data: %s\n\n", data)
-					flusher.Flush()
-				}
+				// Emit final usage and finishReason metadata
+				d := `d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}`
+				e := `e:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0},"isContinued":false}`
+				fmt.Fprintf(w, "%s\n\n%s\n\n", d, e)
+				flusher.Flush()
 				return
 			}
 
@@ -70,27 +47,16 @@ func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 				continue
 			}
 
-			chunk := map[string]string{"0": msg}
-			log.Println("stream chunk:", msg)
-
-			if !utf8.ValidString(msg) {
-				log.Println("invalid UTF-8:", msg)
+			escaped, err := json.Marshal(msg)
+			if err != nil {
 				continue
 			}
 
-			if data, err := json.Marshal(chunk); err == nil {
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-					http.Error(w, "Error writing to stream", http.StatusInternalServerError)
-					return
-				}
-				flusher.Flush()
-			}
+			fmt.Fprintf(w, "0:%s\n\n", escaped)
+			flusher.Flush()
 
 		case <-keepAliveTicker.C:
-			if _, err := fmt.Fprintf(w, ":keepalive\n\n"); err != nil {
-				http.Error(w, "Error writing keepalive", http.StatusInternalServerError)
-				return
-			}
+			fmt.Fprintf(w, ":keepalive\n\n")
 			flusher.Flush()
 
 		case <-ctx.Done():

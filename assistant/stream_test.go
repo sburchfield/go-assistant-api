@@ -29,37 +29,49 @@ func TestToSSE(t *testing.T) {
 	body := recorder.Body.String()
 	events := strings.Split(strings.TrimSpace(body), "\n\n")
 
-	if len(events) != 4 {
-		t.Fatalf("expected 4 SSE events (f, 0, 0, e/d), got %d:\n%s", len(events), body)
+	if len(events) != 5 { // f + 2 tokens + d + e
+		t.Fatalf("expected 5 SSE events (f, 0, 0, d, e), got %d:\n%s", len(events), body)
 	}
 
-	// Check first event (f: messageId)
-	var f map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(events[0], "data: ")), &f); err != nil || f["f"] == nil {
-		t.Errorf("expected first chunk to have 'f', got: %v", f)
+	// Check first event: f:{"messageId":"..."}
+	if !strings.HasPrefix(events[0], "f:{") {
+		t.Errorf("expected first line to start with 'f:', got: %s", events[0])
 	}
 
-	// Check token chunks
+	var f map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(events[0], "f:")), &f); err != nil {
+		t.Errorf("error decoding 'f' event: %v", err)
+	}
+	if f["messageId"] == "" {
+		t.Errorf("expected 'messageId' in 'f' event, got: %v", f)
+	}
+
+	// Token chunks: 0:"Hello", 0:"world"
 	for i, expected := range []string{"Hello", "world"} {
-		var token map[string]string
-		err := json.Unmarshal([]byte(strings.TrimPrefix(events[i+1], "data: ")), &token)
-		if err != nil {
-			t.Fatalf("error decoding chunk %d: %v", i+1, err)
+		if !strings.HasPrefix(events[i+1], "0:") {
+			t.Errorf("expected event %d to start with '0:', got: %s", i+1, events[i+1])
+			continue
 		}
-		if token["0"] != expected {
-			t.Errorf("expected token '%s', got '%s'", expected, token["0"])
+		var token string
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(events[i+1], "0:")), &token); err != nil {
+			t.Errorf("error decoding token %d: %v", i+1, err)
+		}
+		if token != expected {
+			t.Errorf("expected token '%s', got '%s'", expected, token)
 		}
 	}
 
-	// Check final event (e and d)
-	var end map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(events[3], "data: ")), &end); err != nil {
-		t.Errorf("error decoding final chunk: %v", err)
-	}
-	if _, ok := end["e"]; !ok {
-		t.Errorf("expected final chunk to contain 'e'")
-	}
-	if _, ok := end["d"]; !ok {
-		t.Errorf("expected final chunk to contain 'd'")
+	// Check d: and e: chunks
+	for _, prefix := range []string{"d:", "e:"} {
+		found := false
+		for _, line := range events {
+			if strings.HasPrefix(line, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected stream to contain %q event", prefix)
+		}
 	}
 }
