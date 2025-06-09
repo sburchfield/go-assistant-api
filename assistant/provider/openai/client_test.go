@@ -50,7 +50,7 @@ func TestChatStream(t *testing.T) {
 		stream: &mockStream{responses: mockResp},
 	}
 
-	client := openai.NewClientWithSDK(mockClient, "gpt-3.5-turbo")
+	client := openai.NewClientWithSDK(mockClient, "gpt-3.5-turbo", 0.0)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 

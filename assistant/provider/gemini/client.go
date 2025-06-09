@@ -15,17 +15,18 @@ import (
 )
 
 type Client struct {
-	model   *genai.GenerativeClient
-	modelID string
+	model       *genai.GenerativeClient
+	modelID     string
+	temperature float32
 }
 
-func NewClient(ctx context.Context, apiKey, modelID string) (*Client, error) {
+func NewClient(ctx context.Context, apiKey, modelID string, temperature float32) (*Client, error) {
 	generativeClient, err := genai.NewGenerativeClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create generative service client: %w", err)
 	}
 
-	return &Client{model: generativeClient, modelID: modelID}, nil
+	return &Client{model: generativeClient, modelID: modelID, temperature: temperature}, nil
 }
 
 func (c *Client) ChatStream(
@@ -53,8 +54,10 @@ func (c *Client) ChatStream(
 	req := &genaipb.GenerateContentRequest{
 		Model:    fmt.Sprintf("models/%s", c.modelID),
 		Contents: sdkContents,
+		GenerationConfig: &genaipb.GenerationConfig{
+			Temperature: &c.temperature,
+		},
 	}
-
 	stream, err := c.model.StreamGenerateContent(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate content: %w", err)

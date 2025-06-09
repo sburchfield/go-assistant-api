@@ -28,19 +28,21 @@ func (s *sdkWrapper) CreateChatCompletionStream(ctx context.Context, req openai.
 }
 
 type Client struct {
-	sdk   OpenAIClient
-	model string
+	sdk         OpenAIClient
+	model       string
+	temperature float32
 }
 
-func NewClientWithSDK(sdk OpenAIClient, model string) *Client {
+func NewClientWithSDK(sdk OpenAIClient, model string, temperature float32) *Client {
 	return &Client{
-		sdk:   sdk,
-		model: model,
+		sdk:         sdk,
+		model:       model,
+		temperature: temperature,
 	}
 }
 
-func NewClient(apiKey string, model string) *Client {
-	return NewClientWithSDK(&sdkWrapper{inner: openai.NewClient(apiKey)}, model)
+func NewClient(apiKey string, model string, temperature float32) *Client {
+	return NewClientWithSDK(&sdkWrapper{inner: openai.NewClient(apiKey)}, model, temperature)
 }
 
 func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (<-chan string, error) {
@@ -53,9 +55,10 @@ func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (
 	}
 
 	req := openai.ChatCompletionRequest{
-		Model:    c.model,
-		Messages: input,
-		Stream:   true,
+		Model:       c.model,
+		Messages:    input,
+		Stream:      true,
+		Temperature: c.temperature,
 	}
 
 	stream, err := c.sdk.CreateChatCompletionStream(ctx, req)
