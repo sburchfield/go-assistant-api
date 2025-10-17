@@ -29,9 +29,15 @@ func NewClient(ctx context.Context, apiKey, modelID string, temperature float32)
 	return &Client{model: generativeClient, modelID: modelID, temperature: temperature}, nil
 }
 
-func (c *Client) ChatStream(
+func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (<-chan string, error) {
+	return c.ChatStreamWithTools(ctx, messages, nil, "")
+}
+
+func (c *Client) ChatStreamWithTools(
 	ctx context.Context,
 	messages []assistant.Message,
+	tools []assistant.Tool,
+	toolChoice assistant.ToolChoice,
 ) (<-chan string, error) {
 	if len(messages) == 0 {
 		return nil, errors.New("ChatStream: no messages provided")
@@ -58,6 +64,10 @@ func (c *Client) ChatStream(
 			Temperature: &c.temperature,
 		},
 	}
+
+	// Add tools if provided (Gemini support would need implementation)
+	// Note: Gemini's tool support API may differ from OpenAI
+
 	stream, err := c.model.StreamGenerateContent(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate content: %w", err)
@@ -88,5 +98,4 @@ func (c *Client) ChatStream(
 		}
 	}()
 	return out, nil
-
 }
