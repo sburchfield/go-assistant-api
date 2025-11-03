@@ -16,14 +16,15 @@ type Client struct {
 	temperature float32
 }
 
-func NewClient(ctx context.Context, apiKey, location, modelID string, temperature float32) (*Client, error) {
-	// Use Gemini API backend (not Vertex AI) when using an API key
+func NewClient(ctx context.Context, projectID, location, modelID string, temperature float32) (*Client, error) {
+	// Use Vertex AI backend with GCP authentication
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
+		Project:  projectID,
+		Location: location,
+		Backend:  genai.BackendVertexAI,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create gemini client: %w", err)
+		return nil, fmt.Errorf("failed to create vertex ai client: %w", err)
 	}
 
 	return &Client{
