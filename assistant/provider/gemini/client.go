@@ -4,28 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 
-	"cloud.google.com/go/vertexai/genai"
 	"github.com/sburchfield/go-assistant-api/assistant"
+	"google.golang.org/genai"
 )
 
 type Client struct {
-	model       *genai.GenerativeModel
+	client      *genai.Client
+	modelID     string
 	temperature float32
 }
 
 func NewClient(ctx context.Context, projectID, location, modelID string, temperature float32) (*Client, error) {
-	vertexAIClient, err := genai.NewClient(ctx, projectID, location)
+	vertexAIClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+		Project:  projectID,
+		Location: location,
+		Backend:  genai.BackendVertexAI,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vertex ai client: %w", err)
 	}
 
-	model := vertexAIClient.GenerativeModel(modelID)
-	model.Temperature = &temperature
-
-	return &Client{model: model, temperature: temperature}, nil
+	return &Client{
+		client:      vertexAIClient,
+		modelID:     modelID,
+		temperature: temperature,
+	}, nil
 }
 
 func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (<-chan string, error) {
@@ -42,43 +47,39 @@ func (c *Client) ChatStreamWithTools(
 		return nil, errors.New("ChatStream: no messages provided")
 	}
 
-	var history []*genai.Content
+	var contents []*genai.Content
 	for _, msg := range messages {
 		role := "user"
 		if msg.Role == "assistant" || msg.Role == "model" {
 			role = "model"
 		}
-		history = append(history, &genai.Content{
+		contents = append(contents, &genai.Content{
 			Role:  role,
-			Parts: []genai.Part{genai.Text(msg.Content)},
+			Parts: []*genai.Part{{Text: msg.Content}},
 		})
 	}
-
-	session := c.model.StartChat()
-	session.History = history[:len(history)-1]
-
-	// Get the last message to send
-	lastMessage := history[len(history)-1]
 
 	out := make(chan string)
 	go func() {
 		defer close(out)
 
-		stream := session.SendMessageStream(ctx, lastMessage.Parts...)
-		for {
-			resp, err := stream.Next()
-			if err == io.EOF {
-				return
-			}
-			if err != nil {
-				log.Printf("stream recv error: %v", err)
-				return
-			}
+		// Create generation config
+		config := &genai.GenerateContentConfig{
+			Temperature: &c.temperature,
+		}
 
-			for _, cand := range resp.Candidates {
+		// Generate content (non-streaming for now)
+		resp, err := c.client.Models.GenerateContent(ctx, c.modelID, contents, config)
+		if err != nil {
+			log.Printf("failed to generate content: %v", err)
+			return
+		}
+
+		for _, cand := range resp.Candidates {
+			if cand.Content != nil {
 				for _, part := range cand.Content.Parts {
-					if txt, ok := part.(genai.Text); ok {
-						out <- string(txt)
+					if part.Text != "" {
+						out <- part.Text
 					}
 				}
 			}
