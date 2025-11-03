@@ -23,7 +23,7 @@ func TestChatStream_Gemini(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	client, err := gemini.NewClient(ctx, "fake-api-key", "gemini-pro", 0.7)
+	client, err := gemini.NewClient(ctx, "fake-project-id", "fake-api-key", "gemini-pro", 0.7)
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}

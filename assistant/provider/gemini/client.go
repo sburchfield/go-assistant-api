@@ -7,30 +7,29 @@ import (
 	"io"
 	"log"
 
+	"cloud.google.com/go/vertexai/genai"
 	"github.com/sburchfield/go-assistant-api/assistant"
-	"google.golang.org/api/option"
-
-	genai "cloud.google.com/go/ai/generativelanguage/apiv1beta"
-	genaipb "cloud.google.com/go/ai/generativelanguage/apiv1beta/generativelanguagepb"
 )
 
 type Client struct {
-	model       *genai.GenerativeClient
-	modelID     string
+	model       *genai.GenerativeModel
 	temperature float32
 }
 
-func NewClient(ctx context.Context, apiKey, modelID string, temperature float32) (*Client, error) {
-	generativeClient, err := genai.NewGenerativeClient(ctx, option.WithAPIKey(apiKey))
+func NewClient(ctx context.Context, projectID, location, modelID string, temperature float32) (*Client, error) {
+	vertexAIClient, err := genai.NewClient(ctx, projectID, location)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create generative service client: %w", err)
+		return nil, fmt.Errorf("failed to create vertex ai client: %w", err)
 	}
 
-	return &Client{model: generativeClient, modelID: modelID, temperature: temperature}, nil
+	model := vertexAIClient.GenerativeModel(modelID)
+	model.Temperature = &temperature
+
+	return &Client{model: model, temperature: temperature}, nil
 }
 
 func (c *Client) ChatStream(ctx context.Context, messages []assistant.Message) (<-chan string, error) {
-	return c.ChatStreamWithTools(ctx, messages, nil, "")
+	return c.ChatStreamWithTools(ctx, messages, nil, assistant.ToolChoiceAuto)
 }
 
 func (c *Client) ChatStreamWithTools(
@@ -43,42 +42,31 @@ func (c *Client) ChatStreamWithTools(
 		return nil, errors.New("ChatStream: no messages provided")
 	}
 
-	var sdkContents []*genaipb.Content
+	var history []*genai.Content
 	for _, msg := range messages {
-		sdkRole := "user"
+		role := "user"
 		if msg.Role == "assistant" || msg.Role == "model" {
-			sdkRole = "model"
+			role = "model"
 		}
-		sdkContents = append(sdkContents, &genaipb.Content{
-			Role: sdkRole,
-			Parts: []*genaipb.Part{
-				{Data: &genaipb.Part_Text{Text: msg.Content}},
-			},
+		history = append(history, &genai.Content{
+			Role:  role,
+			Parts: []genai.Part{genai.Text(msg.Content)},
 		})
 	}
 
-	req := &genaipb.GenerateContentRequest{
-		Model:    fmt.Sprintf("models/%s", c.modelID),
-		Contents: sdkContents,
-		GenerationConfig: &genaipb.GenerationConfig{
-			Temperature: &c.temperature,
-		},
-	}
+	session := c.model.StartChat()
+	session.History = history[:len(history)-1]
 
-	// Add tools if provided (Gemini support would need implementation)
-	// Note: Gemini's tool support API may differ from OpenAI
-
-	stream, err := c.model.StreamGenerateContent(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate content: %w", err)
-	}
+	// Get the last message to send
+	lastMessage := history[len(history)-1]
 
 	out := make(chan string)
 	go func() {
 		defer close(out)
 
+		stream := session.SendMessageStream(ctx, lastMessage.Parts...)
 		for {
-			resp, err := stream.Recv()
+			resp, err := stream.Next()
 			if err == io.EOF {
 				return
 			}
@@ -89,13 +77,13 @@ func (c *Client) ChatStreamWithTools(
 
 			for _, cand := range resp.Candidates {
 				for _, part := range cand.Content.Parts {
-					text := part.GetText()
-					if text != "" {
-						out <- text
+					if txt, ok := part.(genai.Text); ok {
+						out <- string(txt)
 					}
 				}
 			}
 		}
 	}()
+
 	return out, nil
 }

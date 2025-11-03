@@ -30,7 +30,8 @@ func NewProviderFromEnv() (ChatProvider, error) {
 		}
 		return openai.NewClient(apiKey, model, temperature), nil
 	case "gemini":
-		apiKey := os.Getenv("GEMINI_API_KEY")
+		projectID := os.Getenv("GEMINI_PROJECT_ID")
+		location := os.Getenv("GEMINI_LOCATION")
 		model := os.Getenv("GEMINI_MODEL")
 		temperatureStr := os.Getenv("TEMPERATURE")
 		if temperatureStr != "" {
@@ -39,10 +40,10 @@ func NewProviderFromEnv() (ChatProvider, error) {
 			}
 		}
 
-		if apiKey == "" || model == "" {
-			return nil, fmt.Errorf("missing GEMINI_API_KEY or GEMINI_MODEL")
+		if projectID == "" || location == "" || model == "" {
+			return nil, fmt.Errorf("missing GEMINI_PROJECT_ID, GEMINI_LOCATION, or GEMINI_MODEL")
 		}
-		return gemini.NewClient(context.TODO(), apiKey, model, temperature)
+		return gemini.NewClient(context.TODO(), projectID, location, model, temperature)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
