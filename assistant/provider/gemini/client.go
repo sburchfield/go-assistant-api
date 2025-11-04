@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/sburchfield/go-assistant-api/assistant"
 	"google.golang.org/genai"
@@ -16,13 +17,54 @@ type Client struct {
 	temperature float32
 }
 
-func NewClient(ctx context.Context, projectID, location, modelID string, temperature float32) (*Client, error) {
-	// Use Vertex AI backend with GCP authentication
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+func NewClient(ctx context.Context, projectID, location, modelID string, temperature float32, credentialsJSON string) (*Client, error) {
+	// If credentials JSON is provided (from AWS Secrets Manager), write to temp file
+	// and set GOOGLE_APPLICATION_CREDENTIALS env var
+	var cleanupFunc func()
+
+	if credentialsJSON != "" {
+		tmpFile, err := os.CreateTemp("", "gcp-credentials-*.json")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp file for credentials: %w", err)
+		}
+
+		if _, err := tmpFile.WriteString(credentialsJSON); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, fmt.Errorf("failed to write credentials to temp file: %w", err)
+		}
+		tmpFile.Close()
+
+		// Set environment variable temporarily
+		oldCreds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", tmpFile.Name())
+
+		// Setup cleanup function
+		cleanupFunc = func() {
+			os.Remove(tmpFile.Name())
+			if oldCreds != "" {
+				os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldCreds)
+			} else {
+				os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+			}
+		}
+	}
+
+	// Build client config
+	clientConfig := &genai.ClientConfig{
 		Project:  projectID,
 		Location: location,
 		Backend:  genai.BackendVertexAI,
-	})
+	}
+
+	// Create the client (will use GOOGLE_APPLICATION_CREDENTIALS if set)
+	client, err := genai.NewClient(ctx, clientConfig)
+
+	// Clean up credentials file if we created one
+	if cleanupFunc != nil {
+		cleanupFunc()
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vertex ai client: %w", err)
 	}
