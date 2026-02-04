@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/sburchfield/go-assistant-api/assistant/provider/bedrock"
 	"github.com/sburchfield/go-assistant-api/assistant/provider/gemini"
 	"github.com/sburchfield/go-assistant-api/assistant/provider/openai"
 )
@@ -83,6 +84,25 @@ func NewProviderFromEnv() (ChatProvider, error) {
 		}
 
 		return gemini.NewClient(ctx, projectID, location, model, temperature, credentialsJSON)
+	case "bedrock":
+		ctx := context.Background()
+		region := os.Getenv("AWS_REGION")
+		model := os.Getenv("BEDROCK_MODEL")
+		temperatureStr := os.Getenv("TEMPERATURE")
+		if temperatureStr != "" {
+			if t, err := strconv.ParseFloat(temperatureStr, 32); err == nil {
+				temperature = float32(t)
+			}
+		}
+
+		if region == "" {
+			region = "us-east-1" // Default region
+		}
+		if model == "" {
+			return nil, fmt.Errorf("missing BEDROCK_MODEL")
+		}
+
+		return bedrock.NewClient(ctx, region, model, temperature)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
