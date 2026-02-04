@@ -2,14 +2,21 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"encoding/json"
-
 	"github.com/rs/xid"
 )
+
+// StreamResult contains both the text channel and a way to get usage metadata after streaming completes
+type StreamResult struct {
+	TextChannel <-chan string
+	// GetUsage returns the usage metadata. Must be called after TextChannel is closed.
+	// Returns nil if usage data is not available.
+	GetUsage func() *UsageMetadata
+}
 
 func ToSSE(ctx context.Context, w http.ResponseWriter, stream <-chan string) {
 	w.Header().Set("Content-Type", "text/event-stream")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/sburchfield/go-assistant-api/assistant"
 	"google.golang.org/genai"
@@ -130,4 +131,79 @@ func (c *Client) ChatStreamWithTools(
 	}()
 
 	return out, nil
+}
+
+func (c *Client) ChatStreamWithUsage(ctx context.Context, messages []assistant.Message) (*assistant.StreamResult, error) {
+	return c.ChatStreamWithToolsAndUsage(ctx, messages, nil, assistant.ToolChoiceAuto)
+}
+
+func (c *Client) ChatStreamWithToolsAndUsage(
+	ctx context.Context,
+	messages []assistant.Message,
+	tools []assistant.Tool,
+	toolChoice assistant.ToolChoice,
+) (*assistant.StreamResult, error) {
+	if len(messages) == 0 {
+		return nil, errors.New("ChatStream: no messages provided")
+	}
+
+	var contents []*genai.Content
+	for _, msg := range messages {
+		role := "user"
+		if msg.Role == "assistant" || msg.Role == "model" {
+			role = "model"
+		}
+		contents = append(contents, &genai.Content{
+			Role:  role,
+			Parts: []*genai.Part{{Text: msg.Content}},
+		})
+	}
+
+	out := make(chan string)
+	var usageMetadata *assistant.UsageMetadata
+	var usageMu sync.Mutex
+
+	go func() {
+		defer close(out)
+
+		config := &genai.GenerateContentConfig{
+			Temperature: &c.temperature,
+		}
+
+		resp, err := c.client.Models.GenerateContent(ctx, c.modelID, contents, config)
+		if err != nil {
+			log.Printf("failed to generate content: %v", err)
+			return
+		}
+
+		// Capture usage metadata
+		if resp.UsageMetadata != nil {
+			usageMu.Lock()
+			usageMetadata = &assistant.UsageMetadata{
+				PromptTokenCount:     resp.UsageMetadata.PromptTokenCount,
+				CandidatesTokenCount: resp.UsageMetadata.CandidatesTokenCount,
+				TotalTokenCount:      resp.UsageMetadata.TotalTokenCount,
+			}
+			usageMu.Unlock()
+		}
+
+		for _, cand := range resp.Candidates {
+			if cand.Content != nil {
+				for _, part := range cand.Content.Parts {
+					if part.Text != "" {
+						out <- part.Text
+					}
+				}
+			}
+		}
+	}()
+
+	return &assistant.StreamResult{
+		TextChannel: out,
+		GetUsage: func() *assistant.UsageMetadata {
+			usageMu.Lock()
+			defer usageMu.Unlock()
+			return usageMetadata
+		},
+	}, nil
 }
